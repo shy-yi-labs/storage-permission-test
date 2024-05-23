@@ -2,10 +2,8 @@ package com.example.storagepermissiontest
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
@@ -17,6 +15,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.storagepermissiontest.ui.theme.StoragePermissionTestTheme
@@ -30,6 +31,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
             Toast.makeText(this, "$it", Toast.LENGTH_SHORT).show()
         }
+
+    private var readPermissionState by mutableStateOf(false)
+    private var writePermissionState by mutableStateOf(false)
 
     private val testTargetDirs by lazy {
         buildList {
@@ -53,7 +57,15 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "External Read Permission ${if (readPermissionState) "Granted" else "Denied"}")
+                        Text(text = "External Write Permission ${if (writePermissionState) "Granted" else "Denied"}")
+                        Button(onClick = { permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE) }) {
+                            Text(text = "Request External Read Permission")
+                        }
+                        Button(onClick = { permissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) }) {
+                            Text(text = "Request External Write Permission")
+                        }
                         Button(onClick = {
                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                             val uri = Uri.fromParts("package", packageName, null)
@@ -80,20 +92,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestPermission(permission: String, block: () -> Unit) {
-        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_DENIED) {
-            permissionLauncher.launch(permission)
-            return
-        }
+    override fun onResume() {
+        super.onResume()
 
-        block()
+        readPermissionState = checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        writePermissionState = checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
     private fun readExternalStorage() {
-        requestPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) {
-            testTargetDirs.forEach {
-                readTestFile(it)
-            }
+        testTargetDirs.forEach {
+            readTestFile(it)
         }
     }
 
@@ -110,10 +118,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun writeExternalStorage() {
-        requestPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) {
-            testTargetDirs.forEach {
-                writeTestFile(it)
-            }
+        testTargetDirs.forEach {
+            writeTestFile(it)
         }
     }
 
@@ -132,10 +138,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun deleteExternalStorage() {
-        requestPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) {
-            testTargetDirs.forEach {
-                deleteTestFile(it)
-            }
+        testTargetDirs.forEach {
+            deleteTestFile(it)
         }
     }
 
