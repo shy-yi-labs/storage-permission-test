@@ -1,9 +1,12 @@
 package com.example.storagepermissiontest
 
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
@@ -42,9 +45,27 @@ class MainActivity : ComponentActivity() {
                 add(externalFilesDir)
                 externalFilesDir = externalFilesDir?.parentFile
             }
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES))
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES))
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC))
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS))
             add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
             add(Environment.getExternalStorageDirectory())
             add(File(Environment.getExternalStorageDirectory(), "test"))
+        }
+    }
+
+    private val testTargetMediaStores by lazy {
+        buildList {
+            add(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            add(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            add(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
+            if (Build.VERSION_CODES.Q <= Build.VERSION.SDK_INT) {
+                add(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL))
+                add(MediaStore.Downloads.EXTERNAL_CONTENT_URI)
+            } else {
+                add(MediaStore.Files.getContentUri("external"))
+            }
         }
     }
 
@@ -100,40 +121,155 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readExternalStorage() {
-        testTargetDirs.forEach {
-            readTestFile(it)
+        testTargetDirs.forEachIndexed { index, file ->
+            readTestFile(file, index)
+        }
+
+        testTargetMediaStores.forEachIndexed { index, file ->
+            readUsingMediaStore(file, "test$index.txt")
+            readUsingMediaStore(file, "images$index.jpeg")
         }
     }
 
-    private fun readTestFile(dir: File?) {
-        val file = File(dir, "test.jpg")
+    private fun readUsingMediaStore(uri: Uri, fileName: String) {
+        val selection = "${MediaStore.Files.FileColumns.DISPLAY_NAME} = ?"
+        val selectionArgs = arrayOf(fileName)
+        val cursor = runCatching {
+            contentResolver.query(uri, null, selection, selectionArgs, null)
+        }.getOrNull()
+
+        if (cursor != null && cursor.moveToFirst()) {
+            val idColumn = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
+            val id = cursor.getLong(idColumn)
+            val contentUri = Uri.withAppendedPath(uri, id.toString())
+
+            val size = contentResolver.openInputStream(contentUri)?.use { inputStream ->
+                inputStream.readBytes().size.also {
+                    println(it.toString())
+                }
+            }
+
+            Log.d("MainActivity", "Read Success($size): $uri")
+        } else {
+            Log.d("MainActivity", "Read Failed: $uri")
+        }
+
+        cursor?.close()
+    }
+
+    private fun readTestFile(dir: File?, index: Int) {
+        val textFile = File(dir, "test$index.txt")
         try {
-            file.inputStream().use {
+            textFile.inputStream().use {
                 println(it.readBytes().size.toString())
             }
-            Log.d("MainActivity", "Read Success(${file.exists()}): ${dir?.absolutePath}")
+            Log.d("MainActivity", "Read Success(${textFile.exists()}): ${textFile.absolutePath}")
         } catch (e: FileNotFoundException) {
-            Log.d("MainActivity", "Read Failed(${file.exists()}): ${dir?.absolutePath}")
+            Log.d("MainActivity", "Read Failed(${textFile.exists()}): ${textFile.absolutePath}")
+        }
+
+        val imageFile = File(dir, "images$index.jpeg")
+        try {
+            imageFile.inputStream().use {
+                println(it.readBytes().size.toString())
+            }
+            Log.d("MainActivity", "Read Success(${imageFile.exists()}): ${imageFile.absolutePath}")
+        } catch (e: FileNotFoundException) {
+            Log.d("MainActivity", "Read Failed(${imageFile.exists()}): ${imageFile.absolutePath}")
         }
     }
 
     private fun writeExternalStorage() {
-        testTargetDirs.forEach {
-            writeTestFile(it)
+        testTargetDirs.forEachIndexed { index, file ->
+            writeTestFile(file, index)
+        }
+
+        testTargetMediaStores.forEachIndexed { index, file ->
+            writeUsingMediaStore(file, index)
         }
     }
 
-    private fun writeTestFile(dir: File?) {
-        val file = File(dir, "test.txt")
+    private fun writeUsingMediaStore(uri: Uri, index: Int) {
+        val textFileName = "test$index.txt"
+        val textFileUri = runCatching {
+            contentResolver.insert(
+                uri,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, textFileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.MediaColumns.DATA, File(getExternalFilesDir(Environment.DIRECTORY_MUSIC), textFileName).absolutePath)
+                }
+            )
+        }
+//            .onFailure { it.printStackTrace() }
+            .getOrNull()
+
+        if (textFileUri == null) {
+            Log.d("MainActivity", "Write Failed: ${Uri.withAppendedPath(uri,textFileName)}")
+        } else {
+            contentResolver.openOutputStream(textFileUri)?.use { outputStream ->
+                outputStream.writer().use {
+                    it.write("Hello World!")
+                }
+            }
+
+            Log.d("MainActivity", "Write Success: $textFileUri")
+        }
+
+        val imageFileName = "images$index.jpeg"
+
+        val fileUri = runCatching {
+            contentResolver.insert(
+                uri,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, imageFileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.MediaColumns.DATA, File(getExternalFilesDir(Environment.DIRECTORY_MUSIC), imageFileName).absolutePath)
+                }
+            )
+        }
+//            .onFailure { it.printStackTrace() }
+            .getOrNull()
+
+        if (fileUri == null) {
+            Log.d("MainActivity", "Write Failed: ${Uri.withAppendedPath(uri,imageFileName)}")
+        } else {
+            contentResolver.openOutputStream(fileUri)?.use { outputStream ->
+                resources.openRawResource(R.raw.images).use { inputStream ->
+                    outputStream.write(inputStream.readBytes())
+                }
+            }
+
+            Log.d("MainActivity", "Write Success: $fileUri")
+        }
+    }
+
+    private fun writeTestFile(dir: File?, index: Int) {
+        if (dir?.exists() == false) dir.mkdirs()
+
+        val textFile = File(dir, "test$index.txt")
+
         try {
-            file.outputStream().use { fileOutputStream ->
+            textFile.outputStream().use { fileOutputStream ->
                 fileOutputStream.writer().use {
                     it.write("Hello World!")
                 }
             }
-            Log.d("MainActivity", "Write Success(${file.exists()}): ${dir?.absolutePath}")
+            Log.d("MainActivity", "Write Success(${textFile.exists()}): ${textFile.absolutePath}")
         } catch (e: FileNotFoundException) {
-            Log.d("MainActivity", "Write Failed(${file.exists()}): ${dir?.absolutePath}")
+            Log.d("MainActivity", "Write Failed(${textFile.exists()}): ${textFile.absolutePath}")
+        }
+
+        val imageFile = File(dir, "images$index.jpeg")
+        try {
+            imageFile.outputStream().use { fileOutputStream ->
+                resources.openRawResource(R.raw.images).use { inputStream ->
+                    fileOutputStream.write(inputStream.readBytes())
+                }
+            }
+            Log.d("MainActivity", "Write Success(${imageFile.exists()}): ${imageFile.absolutePath}")
+        } catch (e: FileNotFoundException) {
+            Log.d("MainActivity", "Write Failed(${imageFile.exists()}): ${imageFile.absolutePath}")
         }
     }
 
